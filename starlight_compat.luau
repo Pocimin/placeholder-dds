@@ -1,6 +1,7 @@
 -- Compatibility surface for the existing nznt game modules.
 -- The runtime underneath is CompKiller; this keeps the migration mechanical.
-local Compkiller = getgenv().NZNT_COMPKILLER
+local env = (getgenv and getgenv()) or _G
+local Compkiller = env.NZNT_COMPKILLER
 assert(Compkiller, "nznt CompKiller runtime is missing")
 
 local function imageId(value)
@@ -13,11 +14,11 @@ local function sectionFor(tab, title)
     return tab:DrawSection({Name = title or ""})
 end
 
-local function wrapSection(section)
+local function wrapSection(section, tab)
     local proxy = {}
 
     function proxy:CreateSection(title)
-        return wrapSection(sectionFor(section.__tab, title))
+        return wrapSection(sectionFor(tab, title), tab)
     end
 
     function proxy:CreateToggle(config, flag)
@@ -42,7 +43,7 @@ local function wrapSection(section)
         local range = config.Range or {0, 100}
         local control = section:AddSlider({
             Name = config.Name,
-            Default = config.CurrentValue or range[1],
+            Default = config.CurrentValue ~= nil and config.CurrentValue or range[1],
             Min = range[1],
             Max = range[2],
             Round = config.Increment and 2 or 0,
@@ -56,12 +57,16 @@ local function wrapSection(section)
         config = config or {}
         local control = section:AddTextBox({
             Name = config.Name,
-            Default = "",
+            Default = config.CurrentValue ~= nil and config.CurrentValue or "",
             Placeholder = config.PlaceholderText or "",
             Callback = config.Callback
         })
         control.Set = control.SetValue
         return control
+    end
+
+    function proxy:CreateTextBox(config)
+        return self:CreateInput(config)
     end
 
     function proxy:CreateDropdown(config)
@@ -85,6 +90,20 @@ local function wrapSection(section)
         })
     end
 
+    function proxy:CreateLabel(config)
+        config = type(config) == "table" and config or {Name = config}
+        local label = section:AddParagraph({
+            Title = config.Name or config.Title or "",
+            Content = config.Content or config.Text or ""
+        })
+        label.Set = label.SetContent
+        return label
+    end
+
+    function proxy:CreateDivider()
+        return nil
+    end
+
     return proxy
 end
 
@@ -94,7 +113,12 @@ local function wrapTab(tab)
     function proxy:CreateSection(title)
         local section = sectionFor(tab, title)
         section.__tab = tab
-        return wrapSection(section)
+        return wrapSection(section, tab)
+    end
+
+    function proxy:CreateGroupbox(config)
+        config = config or {}
+        return wrapSection(sectionFor(tab, config.Name or ""), tab)
     end
 
     function proxy:Select()
@@ -158,8 +182,10 @@ local function createWindow(config)
     return proxy
 end
 
-getgenv().NZNT_COMPKILLER_COMPAT = {
-    CreateWindow = createWindow
+env.NZNT_COMPKILLER_COMPAT = {
+    CreateWindow = function(_, config)
+        return createWindow(config)
+    end
 }
 
-return getgenv().NZNT_COMPKILLER_COMPAT
+return env.NZNT_COMPKILLER_COMPAT
