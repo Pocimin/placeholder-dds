@@ -1850,6 +1850,21 @@ function Compkiller:_IsMobile()
 	return UserInputService.TouchEnabled;
 end;
 
+function Compkiller:_GetDeviceScale() : number
+	local Camera: Camera? = workspace.CurrentCamera;
+	local Viewport: Vector2 = (Camera and Camera.ViewportSize) or Vector2.zero;
+
+	if Viewport.Y <= 0 then
+		Viewport = game:GetService('GuiService'):GetScreenResolution();
+	end;
+
+	if Viewport.Y <= 0 then
+		return 1;
+	end;
+
+	return math.clamp(Viewport.Y / 1080, 0.65, 1.5);
+end;
+
 function Compkiller:_AddLinkValue(Name , Default , GlobalBlock , LinkValues , rep , Signal)
 	if Name == "Toggle" then
 		local Toggle = Instance.new("Frame")
@@ -6305,11 +6320,19 @@ end;
 function Compkiller.new(Config : Window)
 
 	if not Config.Scale then
+		local AutoScale = Compkiller:_GetDeviceScale();
+		local BaseScale = Compkiller.Scale.Window;
+
 		if Compkiller:_IsMobile() then
-			Config.Scale = Compkiller.Scale.Mobile;
-		else
-			Config.Scale = Compkiller.Scale.Window;
+			BaseScale = Compkiller.Scale.Mobile;
 		end;
+
+		Config.Scale = UDim2.new(
+			BaseScale.X.Scale,
+			BaseScale.X.Offset * AutoScale,
+			BaseScale.Y.Scale,
+			BaseScale.Y.Offset * AutoScale
+		);
 	end;
 
 	Config = Compkiller.__CONFIG(Config , {
@@ -6391,7 +6414,7 @@ function Compkiller.new(Config : Window)
 	MainFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
 	MainFrame.BorderSizePixel = 0
 	MainFrame.Position = UDim2.fromScale(0.5,0.5);
-	MainFrame.Size = Compkiller.Scale.Window
+	MainFrame.Size = Config.Scale
 	MainFrame.ZIndex = 4
 
 	MainFrame:GetPropertyChangedSignal('BackgroundTransparency'):Connect(function()
@@ -9540,7 +9563,7 @@ function Compkiller.new(Config : Window)
 		CloseWindow.BorderColor3 = Color3.fromRGB(0, 0, 0)
 		CloseWindow.BorderSizePixel = 0
 		CloseWindow.Position = UDim2.new(1, -10, 0, 10)
-		CloseWindow.Size = UDim2.new(0, 0, 0, 23)
+		CloseWindow.Size = UDim2.new(0, 0, 0, 30)
 		CloseWindow.ZIndex = 150
 		CloseWindow.ClipsDescendants = true;
 
@@ -9553,36 +9576,47 @@ function Compkiller.new(Config : Window)
 		ImageLabel.BorderColor3 = Color3.fromRGB(0, 0, 0)
 		ImageLabel.BorderSizePixel = 0
 		ImageLabel.Position = UDim2.new(0.5, 0, 0.5, 0)
-		ImageLabel.Size = UDim2.new(0.800000012, 0, 0.800000012, 0)
+		ImageLabel.Size = UDim2.new(0.9, 0, 0.9, 0)
 		ImageLabel.SizeConstraint = Enum.SizeConstraint.RelativeYY
 		ImageLabel.ZIndex = 151
 		ImageLabel.Image = Config.Logo
 		ImageLabel.ImageTransparency = 1
 		ImageLabel.ClipsDescendants = false;
 
+		local CloseUITween = nil;
+		local CloseIconTween = nil;
+
 		local ToggleCloseUI = function(v)
 			ImageLabel.Image = Config.Logo;
+
+			if CloseUITween then
+				CloseUITween:Cancel();
+			end;
+
+			if CloseIconTween then
+				CloseIconTween:Cancel();
+			end;
 
 			if v then
 				ImageLabel.ClipsDescendants = true;
 
-				Compkiller:_Animation(CloseWindow,TweenInfo.new(0.2),{
-					Size = UDim2.new(0, 45, 0, 23),
+				CloseUITween = Compkiller:_Animation(CloseWindow,TweenInfo.new(0.2),{
+					Size = UDim2.new(0, 60, 0, 30),
 					BackgroundTransparency = 0.025
 				})
 
-				Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
+				CloseIconTween = Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
 					ImageTransparency = (ImageLabel:GetAttribute('Hover') and 0.1) or 0.35
 				})
 			else
 				ImageLabel.ClipsDescendants = false;
 
-				Compkiller:_Animation(CloseWindow,TweenInfo.new(0.2),{
-					Size = UDim2.new(0, 0, 0, 23),
+				CloseUITween = Compkiller:_Animation(CloseWindow,TweenInfo.new(0.2),{
+					Size = UDim2.new(0, 0, 0, 30),
 					BackgroundTransparency = 1
 				})
 
-				Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
+				CloseIconTween = Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
 					ImageTransparency = 1
 				})
 			end;
@@ -9830,30 +9864,43 @@ function Compkiller.new(Config : Window)
 			end);
 		end;
 
+		local LastCloseUIState: boolean? = nil;
+		local LastOpenState: boolean? = nil;
+
 		table.insert(WindowArgs.THREADS,task.spawn(function()
 			while true do task.wait(0.15)
 				if Compkiller:_IsMobile() then
-					ToggleCloseUI(true);
+					if LastCloseUIState ~= true then
+						LastCloseUIState = true;
 
-					if WindowArgs.IsOpen then
-						Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
-							ImageTransparency = 0.35
-						});
+						ToggleCloseUI(true);
+					end;
 
-						ImageLabel:GetAttribute("Hover",false);
-					else
-						ImageLabel:GetAttribute("Hover",true);
+					if WindowArgs.IsOpen ~= LastOpenState then
+						LastOpenState = WindowArgs.IsOpen;
 
-						Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
-							ImageTransparency = 0.1
-						});
+						if WindowArgs.IsOpen then
+							Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
+								ImageTransparency = 0.35
+							});
+
+							ImageLabel:SetAttribute("Hover",false);
+						else
+							ImageLabel:SetAttribute("Hover",true);
+
+							Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
+								ImageTransparency = 0.1
+							});
+						end;
 					end;
 				else
-					if not WindowArgs.IsOpen then
-						ToggleCloseUI(true);
-					else
-						ToggleCloseUI(false);
-					end
+					local Target = not WindowArgs.IsOpen;
+
+					if Target ~= LastCloseUIState then
+						LastCloseUIState = Target;
+
+						ToggleCloseUI(Target);
+					end;
 				end;
 			end
 		end));
