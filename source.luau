@@ -3388,11 +3388,16 @@ function Compkiller:_DrawKeybinds(Window: ScreenGui)
 		Root = Keybinds
 	};
 
+	local lastKeybindSizeY = -1;
 	Ref.THREAD = task.spawn(function()
 		while true do task.wait()
-			Compkiller:_Animation(MainFrame,TweenInfo.new(0.4),{
-				Size = UDim2.new(1, 30, 1, UIListLayout.AbsoluteContentSize.Y + 1)
-			});
+			local targetY = UIListLayout.AbsoluteContentSize.Y + 1;
+			if targetY ~= lastKeybindSizeY then
+				lastKeybindSizeY = targetY;
+				Compkiller:_Animation(MainFrame,TweenInfo.new(0.4),{
+					Size = UDim2.new(1, 30, 1, targetY)
+				});
+			end
 
 			if UIListLayout.AbsoluteContentSize.Y > 1 then
 				Compkiller:_Animation(IconFrame,TweenInfo.new(0.25),{
@@ -3854,19 +3859,33 @@ function Compkiller:_KeybindHandler(Parent: Frame , ObjectType: string , Element
 		APIRef.Update();
 	end;
 
-	APIRef.Thread = task.spawn(function()
-		while true do task.wait(0.01)
-			if APIRef.Mode ~= 1 then
-				if ElementAPI:GetValue() == APIRef.On then
-					KeybindFrame:SetVisible(true);
-				else
-					KeybindFrame:SetVisible(false);
-				end;
-
-				APIRef.Update();
+	local function updateKeybindVisibility()
+		if APIRef.Mode ~= 1 then
+			if ElementAPI:GetValue() == APIRef.On then
+				KeybindFrame:SetVisible(true);
 			else
 				KeybindFrame:SetVisible(false);
 			end;
+			APIRef.Update();
+		else
+			KeybindFrame:SetVisible(false);
+		end;
+	end;
+
+	APIRef.Thread = task.spawn(function()
+		-- event-driven: react to control value changes + keybind settings; no 100Hz polling
+		local hookable = ElementAPI;
+		if hookable and hookable.Changed then
+			hookable.Changed:Connect(function()
+				task.defer(updateKeybindVisibility);
+			end);
+		end;
+		pcall(function()
+			APIRef.ElementAPI = ElementAPI;
+		end);
+		while true do task.wait(0.5)
+			-- keep UI consistent + catch external set calls at 2Hz max (cheap)
+			updateKeybindVisibility();
 		end;
 	end)
 
