@@ -6414,6 +6414,25 @@ function Compkiller.new(Config : Window)
 	MainFrame.BorderColor3 = Color3.fromRGB(0, 0, 0)
 	MainFrame.BorderSizePixel = 0
 	MainFrame.Position = UDim2.fromScale(0.5,0.5);
+	-- NZNT: window size persistence
+	local savedScale = nil;
+	do
+		local ok, saved = pcall(function()
+			if isfile and isfile("nznt_ck_window_size.json") then
+				return HttpService:JSONDecode(readfile("nznt_ck_window_size.json"))
+			end
+			return nil
+		end)
+		if ok and type(saved) == "table" and type(saved.Width) == "number" and type(saved.Height) == "number" then
+			if saved.Width >= 380 and saved.Width <= 1400 and saved.Height >= 320 and saved.Height <= 1000 then
+				savedScale = UDim2.fromOffset(saved.Width, saved.Height)
+			end
+		end
+	end
+	if savedScale then
+		Config.Scale = savedScale;
+	end
+
 	MainFrame.Size = Config.Scale
 	MainFrame.ZIndex = 4
 
@@ -10056,6 +10075,69 @@ function Compkiller.new(Config : Window)
 			end
 		end);
 	end);
+
+	-- NZNT: draggable resize handle (bottom-right)
+	do
+		local ResizeHandle = Instance.new("Frame");
+		ResizeHandle.Name = "NZNT_ResizeHandle";
+		ResizeHandle.AnchorPoint = Vector2.new(1, 1);
+		ResizeHandle.Position = UDim2.new(1, 0, 1, 0);
+		ResizeHandle.Size = UDim2.fromOffset(18, 18);
+		ResizeHandle.BackgroundColor3 = Color3.fromRGB(255, 255, 255);
+		ResizeHandle.BackgroundTransparency = 0.55;
+		ResizeHandle.BorderSizePixel = 0;
+		ResizeHandle.ZIndex = 999;
+		ResizeHandle.Parent = MainFrame;
+
+		local corner = Instance.new("UICorner");
+		corner.CornerRadius = UDim.new(0, 4);
+		corner.Parent = ResizeHandle;
+
+		local grip = Instance.new("UIGradient");
+		grip.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 255, 255)),
+			ColorSequenceKeypoint.new(1, Color3.fromRGB(160, 160, 160))
+		});
+		grip.Transparency = NumberSequence.new(0.4);
+		grip.Parent = ResizeHandle;
+
+		local Resizing = false;
+		local StartMouse;
+		local StartSize;
+
+		ResizeHandle.InputBegan:Connect(function(input)
+			if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+				return;
+			end;
+			Resizing = true;
+			StartMouse = input.Position;
+			StartSize = Vector2.new(MainFrame.AbsoluteSize.X, MainFrame.AbsoluteSize.Y);
+			input.Changed:Connect(function()
+				if not Resizing or input.UserInputState == Enum.UserInputState.End then
+					return;
+				end;
+				local delta = input.Position - StartMouse;
+				local newW = StartSize.X + delta.X;
+				local newH = StartSize.Y + delta.Y;
+				newW = math.clamp(newW, 380, 1400);
+				newH = math.clamp(newH, 320, 1000);
+				MainFrame.Size = UDim2.fromOffset(newW, newH);
+			end);
+		end);
+
+		ResizeHandle.InputEnded:Connect(function()
+			if not Resizing then return end;
+			Resizing = false;
+			local ok = pcall(function()
+				if writefile and isfile then
+					writefile("nznt_ck_window_size.json", HttpService:JSONEncode({
+						Width = math.floor(MainFrame.AbsoluteSize.X),
+						Height = math.floor(MainFrame.AbsoluteSize.Y)
+					}));
+				end
+			end);
+		end);
+	end;
 
 	return WindowArgs;
 end;

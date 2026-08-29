@@ -1,4 +1,4 @@
--- Minimal MacLib-shaped facade for the bundled DDS free loader.
+-- Minimal CompKiller facade for the bundled DDS free loader.
 local env = (getgenv and getgenv()) or _G
 local Compkiller = env.NZNT_COMPKILLER
 assert(Compkiller, "nznt CompKiller runtime is missing")
@@ -15,6 +15,7 @@ end
 
 local function wrapSection(section)
     local proxy = {}
+    proxy.Root = section.Root
 
     function proxy:SubText(text)
         return section:AddParagraph({Title = "", Content = tostring(text or "")})
@@ -124,8 +125,14 @@ local function createWindow(config)
             end
             function tabProxy:LockedSection(sectionConfig)
                 local locked = self:Section({Name = sectionConfig.Name or "Locked", Side = sectionConfig.Side})
-                locked:SubText(sectionConfig.Description or sectionConfig.LockText or "Premium feature")
-                locked:Button({Name = sectionConfig.ButtonText or "Unlock", Callback = function() end})
+                local paragraph = locked.Root and locked.Root.AddParagraph and locked.Root:AddParagraph({
+                    Title = "🔒  Buy premium to unlock!",
+                    Content = sectionConfig.Description or sectionConfig.LockText or "Premium feature"
+                })
+                if not paragraph then
+                    locked:SubText("🔒  Buy premium to unlock!")
+                    locked:Label({Text = sectionConfig.Description or sectionConfig.LockText or "Premium feature"})
+                end
                 return locked
             end
             function tabProxy:Select() return self end
@@ -153,9 +160,9 @@ local function createWindow(config)
     return proxy
 end
 
-env.NZNT_COMPKILLER_MACLIB_COMPAT = {
+env.NZNT_FREE_UI_RUNTIME = {
     Window = function(_, config)
         return createWindow(config)
     end
 }
-return env.NZNT_COMPKILLER_MACLIB_COMPAT
+return env.NZNT_FREE_UI_RUNTIME
