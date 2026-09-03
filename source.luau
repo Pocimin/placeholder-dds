@@ -1663,16 +1663,11 @@ function Compkiller:_Blur(element : Frame , WindowRemote) : RBXScriptSignal
 		end;
 	end);
 
-	local THREAD = task.spawn(function()
-		while true do task.wait(0.1)
-			pcall(UpdateFunction);
-		end;
-	end);
-
+	-- NZNT: no fallback poll thread; UpdateFunction is already driven by the
+	-- camera CFrame property signal + UserInputService.InputChanged events.
 	disconnect = function()
 		rbxsignal:Disconnect();
 		loopThread:Disconnect();
-		task.cancel(THREAD);
 		Part:Destroy();
 		DepthOfField:Destroy();
 	end;
@@ -3389,17 +3384,33 @@ function Compkiller:_DrawKeybinds(Window: ScreenGui)
 	};
 
 	local lastKeybindSizeY = -1;
-	Ref.THREAD = task.spawn(function()
-		while true do task.wait()
-			local targetY = UIListLayout.AbsoluteContentSize.Y + 1;
+	local lastKeybindOpen = nil;
+	local lastKeybindWidth = nil;
+
+	local keybindsSync = function()
+		local targetY = UIListLayout.AbsoluteContentSize.Y + 1;
+
+		if targetY > 1 then
+			local LargF = 100;
+
+			for i,v in next , MainFrame:GetChildren() do
+				local scale = v:GetAttribute('AvgScale');
+
+				if scale and scale > LargF then
+					LargF = scale;
+				end;
+			end;
+
 			if targetY ~= lastKeybindSizeY then
 				lastKeybindSizeY = targetY;
 				Compkiller:_Animation(MainFrame,TweenInfo.new(0.4),{
 					Size = UDim2.new(1, 30, 1, targetY)
 				});
-			end
+			end;
 
-			if UIListLayout.AbsoluteContentSize.Y > 1 then
+			if lastKeybindOpen ~= true then
+				lastKeybindOpen = true;
+
 				Compkiller:_Animation(IconFrame,TweenInfo.new(0.25),{
 					BackgroundTransparency = 0.3
 				})
@@ -3415,22 +3426,22 @@ function Compkiller:_DrawKeybinds(Window: ScreenGui)
 				Compkiller:_Animation(Icon,TweenInfo.new(0.25),{
 					ImageTransparency = 0
 				});
+			end;
 
-				local LargF = 100;
-
-				for i,v in next , MainFrame:GetChildren() do
-					if v:GetAttribute('AvgScale') then
-						if v:GetAttribute('AvgScale') > LargF then
-							LargF = v:GetAttribute('AvgScale');
-						end;
-					end;
-				end;
+			if lastKeybindWidth ~= LargF then
+				lastKeybindWidth = LargF;
 
 				Compkiller:_Animation(Keybinds,TweenInfo.new(0.25),{
 					BackgroundTransparency = 0.025,
 					Size = UDim2.new(0, LargF, 0, 25)
-				})
-			else
+				});
+			end;
+
+			Keybinds.Visible = true;
+		else
+			if lastKeybindOpen ~= false then
+				lastKeybindOpen = false;
+
 				Compkiller:_Animation(HeadLabel,TweenInfo.new(0.25),{
 					TextTransparency = 1
 				})
@@ -3450,21 +3461,38 @@ function Compkiller:_DrawKeybinds(Window: ScreenGui)
 				Compkiller:_Animation(Icon,TweenInfo.new(0.25),{
 					ImageTransparency = 1
 				});
-			end;
 
-			Keybinds.Visible = (Keybinds.BackgroundTransparency < 0.9 and true) or false;
-
-			if Compkiller.PerformanceMode then
-				if Keybinds.Visible then
-					Compkiller:_SetNilP(Keybinds , Window);
-				else
-					Compkiller:_SetNilP(Keybinds , nil);
-				end;
-			else
-				Compkiller:_SetNilP(Keybinds , Window);
+				task.delay(0.3,function()
+					if lastKeybindOpen == false then
+						Keybinds.Visible = false;
+					end;
+				end);
 			end;
 		end;
+
+		if Compkiller.PerformanceMode then
+			if Keybinds.Visible then
+				Compkiller:_SetNilP(Keybinds , Window);
+			else
+				Compkiller:_SetNilP(Keybinds , nil);
+			end;
+		else
+			Compkiller:_SetNilP(Keybinds , Window);
+		end;
+	end;
+
+	UIListLayout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(function()
+		task.defer(keybindsSync);
 	end);
+
+	Ref.THREAD = task.spawn(function()
+		task.wait(0.25);
+		task.defer(keybindsSync);
+
+		while true do task.wait(0.5)
+			keybindsSync();
+		end;
+	end)
 
 	function Ref:AddFrame()
 		local Keyholder = Instance.new("Frame")
@@ -7235,6 +7263,10 @@ function Compkiller.new(Config : Window)
 			if bool then
 				WindowArgs.SelectedTab = TabButton;
 
+				if WindowArgs._OnTabSelected then
+					WindowArgs._OnTabSelected();
+				end;
+
 				Compkiller:_Animation(Icon,Tween,{
 					ImageTransparency = 0,
 				});
@@ -7546,12 +7578,8 @@ function Compkiller.new(Config : Window)
 
 		UIListLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(upd);
 
-		return task.defer(function()
-			while true do task.wait(1)
-				upd();
-			end;
-		end)
-
+		task.defer(upd);
+	end;
 		--[[local Parent: ScrollingFrame = UilistLayout.Parent;
 
 		Parent = Parent or Scrolling;
@@ -7580,7 +7608,6 @@ function Compkiller.new(Config : Window)
 		end;
 
 		table.insert(WindowArgs.THREADS,task.spawn(Executable))]]
-	end;
 
 	function WindowArgs:DrawConfig(Configuration : TabConfigManager , Internal)
 		Configuration = Compkiller.__CONFIG(Configuration,{
@@ -8005,6 +8032,10 @@ function Compkiller.new(Config : Window)
 			if bool then
 
 				WindowArgs.SelectedTab = TabButton;
+
+				if WindowArgs._OnTabSelected then
+					WindowArgs._OnTabSelected();
+				end;
 
 				Compkiller:_Animation(Icon,Tween,{
 					ImageTransparency = 0,
@@ -8750,7 +8781,7 @@ function Compkiller.new(Config : Window)
 			Init.THREAD = task.spawn(function()
 				local OldIndex = Configuration.Config:GetConfigCount();
 
-				while true do task.wait(0.125);
+				while true do task.wait(0.5);
 					local CountInDirectory = Configuration.Config:GetConfigCount();
 
 					if OldIndex ~= CountInDirectory then
@@ -9094,6 +9125,10 @@ function Compkiller.new(Config : Window)
 
 					WindowArgs.SelectedTab = TabButton;
 
+					if WindowArgs._OnTabSelected then
+						WindowArgs._OnTabSelected();
+					end;
+
 					Compkiller:_Animation(Icon,Tween,{
 						ImageTransparency = 0,
 					});
@@ -9273,21 +9308,21 @@ function Compkiller.new(Config : Window)
 			[Upvalue.Right] = {},
 		};
 
-		TabArgs.LeftThread = coroutine.wrap(function()
-			task.wait();
+		TabArgs.LeftThread = function()
+			Upvalue.LeftLayout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(function()
+				task.defer(function()
+					TabArgs:_UpdateScrolling(Upvalue.Left , Upvalue.LeftLayout);
+				end);
+			end);
+		end;
 
-			while true do task.wait(0.01)
-				TabArgs:_UpdateScrolling(Upvalue.Left , Upvalue.LeftLayout);
-			end;
-		end);
-
-		TabArgs.RightThread = coroutine.wrap(function()
-			task.wait(0.1);
-
-			while true do task.wait(0.01)
-				TabArgs:_UpdateScrolling(Upvalue.Right , Upvalue.RightLayout);
-			end;
-		end);
+		TabArgs.RightThread = function()
+			Upvalue.RightLayout:GetPropertyChangedSignal('AbsoluteContentSize'):Connect(function()
+				task.defer(function()
+					TabArgs:_UpdateScrolling(Upvalue.Right , Upvalue.RightLayout);
+				end);
+			end);
+		end;
 
 		--TabArgs.LeftThread();
 		--TabArgs.RightThread();
@@ -9905,42 +9940,52 @@ function Compkiller.new(Config : Window)
 		local LastCloseUIState: boolean? = nil;
 		local LastOpenState: boolean? = nil;
 
-		table.insert(WindowArgs.THREADS,task.spawn(function()
-			while true do task.wait(0.15)
-				if Compkiller:_IsMobile() then
-					if LastCloseUIState ~= true then
-						LastCloseUIState = true;
+		local UpdateCloseUI = function()
+			if Compkiller:_IsMobile() then
+				if LastCloseUIState ~= true then
+					LastCloseUIState = true;
 
-						ToggleCloseUI(true);
-					end;
+					ToggleCloseUI(true);
+				end;
 
-					if WindowArgs.IsOpen ~= LastOpenState then
-						LastOpenState = WindowArgs.IsOpen;
+				if WindowArgs.IsOpen ~= LastOpenState then
+					LastOpenState = WindowArgs.IsOpen;
 
-						if WindowArgs.IsOpen then
-							Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
-								ImageTransparency = 0.35
-							});
+					if WindowArgs.IsOpen then
+						Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
+							ImageTransparency = 0.35
+						});
 
-							ImageLabel:SetAttribute("Hover",false);
-						else
-							ImageLabel:SetAttribute("Hover",true);
+						ImageLabel:SetAttribute("Hover",false);
+					else
+						ImageLabel:SetAttribute("Hover",true);
 
-							Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
-								ImageTransparency = 0.1
-							});
-						end;
-					end;
-				else
-					local Target = not WindowArgs.IsOpen;
-
-					if Target ~= LastCloseUIState then
-						LastCloseUIState = Target;
-
-						ToggleCloseUI(Target);
+						Compkiller:_Animation(ImageLabel,TweenInfo.new(0.2),{
+							ImageTransparency = 0.1
+						});
 					end;
 				end;
-			end
+			else
+				local Target = not WindowArgs.IsOpen;
+
+				if Target ~= LastCloseUIState then
+					LastCloseUIState = Target;
+
+					ToggleCloseUI(Target);
+				end;
+			end;
+		end;
+
+		WindowOpen:Connect(function()
+			task.defer(UpdateCloseUI);
+		end);
+
+		table.insert(WindowArgs.THREADS,task.spawn(function()
+			task.defer(UpdateCloseUI);
+
+			while true do task.wait(0.5)
+				UpdateCloseUI();
+			end;
 		end));
 
 		UserInputService.InputBegan:Connect(function(Input,Typing)
@@ -10020,44 +10065,100 @@ function Compkiller.new(Config : Window)
 			Property = "BackgroundColor3"
 		});
 
-		while true do task.wait(0.01);
-			BlurElement.Size = UDim2.new(1, TabFrame.AbsoluteSize.X - 35, 1, 0);
-			MovementFrame.Size = UDim2.new(1, TabFrame.AbsoluteSize.X - 35, 1, 0);
+		-- NZNT: event-driven tab-rail selection / window width follow (was 100Hz poll loop)
+		local selectionTween = nil;
+		local tabHoverShown = nil;
+
+		local function tweenSelection(transparency, positionY)
+			if selectionTween then
+				selectionTween:Cancel();
+				selectionTween = nil;
+			end;
+
+			local properties = {
+				BackgroundTransparency = transparency
+			};
+
+			if positionY then
+				properties.Position = UDim2.new(1, 5, 0, math.ceil(positionY));
+			end;
+
+			local tween = Compkiller:_Animation(SelectionFrame , TweenInfo.new(positionY and 0.15 or 0.1) , properties);
+			selectionTween = tween;
+
+			tween.Completed:Once(function()
+				if selectionTween == tween then
+					selectionTween = nil;
+				end;
+			end);
+		end;
+
+		local function updateSelection()
+			local width = TabFrame.AbsoluteSize.X - 35;
+
+			if BlurElement.Size.X.Offset ~= width then
+				BlurElement.Size = UDim2.new(1, width, 1, 0);
+			end;
+
+			if MovementFrame.Size.X.Offset ~= width then
+				MovementFrame.Size = UDim2.new(1, width, 1, 0);
+			end;
 
 			SelectionFrame.BackgroundColor3 = Compkiller.Colors.Highlight;
+
+			if WindowArgs.AlwayShowTab then
+				if tabHoverShown ~= true then
+					tabHoverShown = true;
+					TabHover:Fire(true);
+				end;
+			else
+				tabHoverShown = nil;
+			end;
 
 			if WindowArgs.SelectedTab and WindowArgs.IsOpen then
 				local vili = -(TabButtons.AbsolutePosition.Y - WindowArgs.SelectedTab.AbsolutePosition.Y) + 4;
 				local distance = (SelectionFrame.Position.Y.Offset - vili);
 
 				if vili < 0 or vili > TabButtons.AbsoluteSize.Y then
-					Compkiller:_Animation(SelectionFrame , TweenInfo.new(0.1) , {
-						BackgroundTransparency = 1
-					});
+					if SelectionFrame.BackgroundTransparency ~= 1 then
+						tweenSelection(1 , nil);
+					end;
 				else
 					if math.abs(distance) <= 10 then
-						Compkiller:_Animation(SelectionFrame , TweenInfo.new(0.1) , {
-							BackgroundTransparency = 0
-						});
+						if SelectionFrame.BackgroundTransparency ~= 0 then
+							tweenSelection(0 , nil);
+						end;
 
 						SelectionFrame.Position = UDim2.new(1,5,0,math.ceil(vili));
 					else
-						Compkiller:_Animation(SelectionFrame , TweenInfo.new(0.15) , {
-							BackgroundTransparency = 0,
-							Position = UDim2.new(1,5,0,math.ceil(vili))
-						});
+						tweenSelection(0 , vili);
 					end;
 				end;
 			else
-				Compkiller:_Animation(SelectionFrame , TweenInfo.new(0.15) , {
-					BackgroundTransparency = 1
-				});
-			end;
-
-			if WindowArgs.AlwayShowTab then
-				TabHover:Fire(true);
+				if SelectionFrame.BackgroundTransparency ~= 1 then
+					tweenSelection(1 , nil);
+				end;
 			end;
 		end;
+
+		WindowArgs._OnTabSelected = updateSelection;
+
+		TabFrame:GetPropertyChangedSignal('AbsoluteSize'):Connect(function()
+			task.defer(updateSelection);
+		end);
+
+		WindowOpen:Connect(function()
+			task.defer(updateSelection);
+		end);
+
+		table.insert(WindowArgs.THREADS,task.spawn(function()
+			task.wait(0.25);
+			task.defer(updateSelection);
+
+			while true do task.wait(0.5)
+				updateSelection();
+			end;
+		end));
 	end);
 
 	WindowArgs:Update();
